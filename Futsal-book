@@ -1,0 +1,1173 @@
+package main
+import "fmt"
+
+const NMAX = 1001
+
+// untuk ngeset jam operasional lapangan dalam satuan menit
+const JAM_BUKA = 8 * 60 // ini jam 08:00 = 480
+const JAM_TUTUP = 22 * 60 // ini jam 22:00 = 1320
+
+// untuk durasi setiap slot jadwal ksong dlm menit (120 menit = 2 jam)
+// slot otomatis dibuat per 2 jam, 08:00 - 10:00, 10:00 - 12:00
+const SLOT_JADWAL = 120
+
+type Lapangan struct {
+	IdLapangan		int
+	NamaLapangan	string
+	HargaPerJam		int
+}
+
+// struct untuk nyimpan data transaksi sewa sekaligus data penyewa
+type DataSewa struct {
+	Id 				int 
+	IdPenyewa		int 
+	IdLapangan		int
+	NamaPenyewa		string
+	NoTelp			string
+	Tanggal			string
+	JamMulai		int 
+	JamSelesai		int 
+	HargaPerJam		int // ini semisal kita ubh harga awal lapangan jadi harga baru, jdi pas di statistik pendapatan tuh tetep masukin harga yg sebelum di ubh ama sesudah di ubh
+	TotalBayar		int 
+	StatusTersedia	bool // lagi tersedia atau udh di booking ama org
+	StatusBayar		bool // lunas apa nggak
+}
+
+type DaftarLapangan [NMAX]Lapangan
+type DaftarSewa [NMAX]DataSewa
+
+func inputJam() int {
+	var teks string
+	var jam, menit int
+
+	fmt.Scan(&teks)
+	jam = int(teks[0]-'0')*10 + int(teks[1]-'0') 
+	menit = int(teks[3]-'0')*10 + int(teks[4]-'0') 
+
+	if teks[2] != ':' || jam < 0 || jam > 23 || menit < 0 || menit > 59 {
+		return -1
+	}
+	return jam*60 + menit
+}
+
+func cetakDuaDigit(angka int) {
+	if angka < 10 {
+		fmt.Print("0")
+	}
+	fmt.Print(angka)
+}
+
+// agar format jam nya jadi HH:MM 
+func cetakJam(totalmenit int) {
+	cetakDuaDigit(totalmenit / 60)
+	fmt.Print(":")
+	cetakDuaDigit(totalmenit % 60)
+}
+
+// 3 data dummy lapangan untuk demo
+func isiDataLapangan(tab *DaftarLapangan, jumlah *int) {
+	tab[0] = Lapangan{1, "Lapangan_A", 100000} 
+	tab[1] = Lapangan{2, "Lapangan_B", 120000}
+	tab[2] = Lapangan{3, "Lapangan_C", 90000}
+	*jumlah = 3
+}
+
+// data dummy penyewa dan sewa untuk demo
+func isiDataDummy(dataPenyewa *DaftarSewa, jumlahPenyewa *int, dataSewa *DaftarSewa, jumlahSewa *int) {
+	// Data Penyewa
+	dataPenyewa[0] = DataSewa{IdPenyewa: 001, NamaPenyewa : "Fatin", NoTelp : "085156160577"}
+	dataPenyewa[1] = DataSewa{IdPenyewa: 002, NamaPenyewa : "Caca", NoTelp : "08996726662"}
+	dataPenyewa[2] = DataSewa{IdPenyewa: 003, NamaPenyewa : "Rangga", NoTelp : "081234567890"}
+	*jumlahPenyewa = 3
+
+	// Data Sewa
+	dataSewa[0] = DataSewa{
+		Id: 1, IdPenyewa: 001, IdLapangan: 1,
+		NamaPenyewa: "Fatin", NoTelp: "085156160577",
+		Tanggal: "2026-09-28", JamMulai: 10 * 60, JamSelesai: 12 * 60, 
+		HargaPerJam: 100000, TotalBayar: 200000, 
+		StatusTersedia: false, StatusBayar: true,
+	}
+	dataSewa[1] = DataSewa{
+		Id: 2, IdPenyewa: 002, IdLapangan: 2, 
+		NamaPenyewa: "Caca", NoTelp: "08996726662", 
+		Tanggal: "2026-09-28", JamMulai: 8 * 60, JamSelesai: 10 * 60, 
+		HargaPerJam: 120000, TotalBayar: 240000, 
+		StatusTersedia: false, StatusBayar: false,
+	}
+	dataSewa[2] = DataSewa{
+		Id: 3, IdPenyewa: 002, IdLapangan: 1,
+		NamaPenyewa: "Caca", NoTelp: "08996726662",
+		Tanggal: "2026-09-28", JamMulai: 12 * 60, JamSelesai: 14 * 60, 
+		HargaPerJam: 100000, TotalBayar: 200000, 
+		StatusTersedia: false, StatusBayar: false,
+	}
+	dataSewa[3] = DataSewa{
+		Id: 4, IdPenyewa: 003, IdLapangan: 3,
+		NamaPenyewa: "Rangga", NoTelp: "081234567890",
+		Tanggal: "2026-09-28", JamMulai: 14 * 60 + 35 , JamSelesai: 16 * 60, 
+		HargaPerJam: 90000, TotalBayar: 180000, 
+		StatusTersedia: false , StatusBayar: true,
+	}
+	*jumlahSewa = 4
+}
+
+func tampilMenuUtama() {
+	fmt.Println("==== FUTSAL BOOK ====") 
+	fmt.Println("1. Kelola data")
+	fmt.Println("2. Transaksi & Jadwal")
+	fmt.Println("3. Pencarian penyewa")
+	fmt.Println("4. Urutkan jadwal kosong")
+	fmt.Println("5. Statistik")
+	fmt.Println("0. Keluar")
+	fmt.Println("Pilih menu: ")
+}
+
+func tampilLapangan(tab DaftarLapangan, jumlah int) {
+	var i int 
+
+	if jumlah == 0 {
+		fmt.Println("Belum ada data lapangan.")
+	} else {
+		fmt.Println("==== DATA LAPANGAN ====")
+		i = 0
+		for i < jumlah {
+			fmt.Println("ID Lapangan		:", tab[i].IdLapangan)
+			fmt.Println("Nama Lapangan		:", tab[i].NamaLapangan)	
+			fmt.Println("Harga/Jam		:", tab[i].HargaPerJam)
+			fmt.Println("-------------------------------")
+			i++
+		}
+	}
+}
+
+func cariLapangan(tab DaftarLapangan, jumlah int, idCari int) int {
+	var i, posisi int
+	posisi = -1
+	i = 0
+	for i < jumlah && posisi == -1 {
+		if tab[i].IdLapangan == idCari {
+			posisi = i 
+		}
+		i++
+	}
+	return posisi
+}
+
+// FITUR BAGIAN A : MENAMBAHKAN, MENGUBAH, MENGHAPUS DATA LAPANGAN DAN DATA PENYEWA
+func tambahLapangan(tab *DaftarLapangan, jumlah *int) {
+	var lapanganBaru Lapangan
+	var posisi int 
+
+	if *jumlah >= NMAX {
+		fmt.Println("Data lapangan sudah penuh.")
+	} else {
+		fmt.Println("==== TAMBAH DATA LAPANGAN ====")
+		fmt.Print("Masukkan ID lapangan: ")
+		fmt.Scan(&lapanganBaru.IdLapangan)
+
+		posisi = cariLapangan(*tab, *jumlah, lapanganBaru.IdLapangan)
+		if posisi != -1 {
+			fmt.Println("ID lapangan sudah digunakan.")
+		} else {
+			fmt.Print("Masukkan nama lapangan: ")
+			fmt.Scan(&lapanganBaru.NamaLapangan)
+			fmt.Print("Masukkan harga per jam: ")
+			fmt.Scan(&lapanganBaru.HargaPerJam)
+
+			tab[*jumlah] = lapanganBaru
+			*jumlah = *jumlah + 1
+			fmt.Println("Data lapangan berhasil ditambahkan.")
+		}
+	}
+}
+
+func ubahLapangan(tab *DaftarLapangan, jumlah int) {
+	var idCari, posisi int 
+
+	fmt.Println("==== UBAH DATA LAPANGAN ====")
+	fmt.Print("Masukkan ID lapangan yg ingin diubah: ")
+	fmt.Scan(&idCari)
+
+	posisi = cariLapangan(*tab, jumlah, idCari)
+	if posisi == -1 {
+		fmt.Println("Data lapangan tidak ditemukan.")
+	} else {
+		fmt.Println("Data lama:")
+		fmt.Println("ID lapangan	:", tab[posisi].IdLapangan)
+		fmt.Println("Nama lapangan	:", tab[posisi].NamaLapangan)
+		fmt.Println("Harga/Jam		:", tab[posisi].HargaPerJam)
+		fmt.Print("Masukkan nama lapangan baru: ") 
+		fmt.Scan(&tab[posisi].NamaLapangan)
+		fmt.Print("Masukkan harga per jam baru: ")
+		fmt.Scan(&tab[posisi].HargaPerJam)
+		fmt.Println("Data lapangan berhasil diubah.")
+	}
+}
+
+func lapanganDipakai(tab DaftarSewa, jumlah int, idLapangan int) bool {
+	var i int
+	var dipakai bool 
+
+	i = 0
+	dipakai = false
+	for i < jumlah && !dipakai {
+		if tab[i].IdLapangan == idLapangan {
+			dipakai = true 
+		}
+		i++
+	}
+	return dipakai
+}
+
+func hapusLapangan(tab *DaftarLapangan, jumlah *int, dataSewa DaftarSewa, jumlahSewa int) {
+	var idCari, posisi, i int 
+
+	fmt.Println("==== HAPUS DATA LAPANGAN ====")
+	fmt.Print("Masukkan ID lapangan yg ingin dihapus: ")
+	fmt.Scan(&idCari)
+
+	posisi = cariLapangan(*tab, *jumlah, idCari)
+	if posisi == -1 {
+		fmt.Println("Data lapangan tidak ditemukan.")
+	} else if lapanganDipakai(dataSewa, jumlahSewa, idCari) {
+		fmt.Println("Lapangan tidak dapat dihapus karena sudah memiliki data sewa.")
+	} else {
+		i = posisi 
+		for i < *jumlah-1 {
+			tab[i] = tab[i+1]
+			i++
+		}
+		*jumlah = *jumlah - 1
+		fmt.Println("Data lapangan berhasil dihapus.")
+	}
+}
+
+func cariPenyewa(tab DaftarSewa, jumlah int, idCari int) int {
+	var i, posisi int
+	posisi = -1
+	i = 0
+	for i < jumlah && posisi == -1 {
+		if tab[i].IdPenyewa == idCari {
+			posisi = i 
+		}
+		i++
+	}
+	return posisi
+}
+
+func tampilPenyewa(tab DaftarSewa, jumlah int) {
+	var i int 
+
+	if jumlah == 0 {
+		fmt.Println("Belum ada data penyewa.")
+	} else {
+		fmt.Println("==== DATA PENYEWA ====")
+		i = 0
+		for i < jumlah {
+			fmt.Println("ID Penyewa	:", tab[i].IdPenyewa)
+			fmt.Println("Nama 		:", tab[i].NamaPenyewa)	
+			fmt.Println("No Telepon	:", tab[i].NoTelp)
+			fmt.Println("-------------------------------")
+			i++
+		}
+	}
+}
+
+func tambahPenyewa(tab *DaftarSewa, jumlah *int) {
+	var penyewaBaru DataSewa
+	var posisi int 
+
+	if *jumlah >= NMAX {
+		fmt.Println("Data penyewa sudah penuh.")
+	} else {
+		fmt.Println("==== TAMBAH DATA PENYEWA ====")
+		fmt.Print("Masukkan ID penyewa: ")
+		fmt.Scan(&penyewaBaru.IdPenyewa)
+
+		posisi = cariPenyewa(*tab, *jumlah, penyewaBaru.IdPenyewa)
+		if posisi != -1 {
+			fmt.Println("ID penyewa sudah digunakan.")
+		} else {
+			fmt.Print("Masukkan nama penyewa: ")
+			fmt.Scan(&penyewaBaru.NamaPenyewa)
+			fmt.Print("Masukkan nomor telepon: ")
+			fmt.Scan(&penyewaBaru.NoTelp)
+
+			tab[*jumlah] = penyewaBaru
+			*jumlah = *jumlah + 1
+			fmt.Println("Data penyewa berhasil ditambahkan.")
+		}
+	}
+}
+
+func ubahPenyewa(tab *DaftarSewa, jumlah int) {
+	var idCari, posisi int 
+
+	fmt.Println("==== UBAH DATA PENYEWA ====")
+	fmt.Print("Masukkan ID penyewa yg ingin diubah: ")
+	fmt.Scan(&idCari)
+
+	posisi = cariPenyewa(*tab, jumlah, idCari)
+	if posisi == -1 {
+		fmt.Println("Data penyewa tidak ditemukan.")
+	} else {
+		fmt.Println("Data lama:")
+		fmt.Println("ID Penyewa		:", tab[posisi].IdPenyewa)
+		fmt.Println("Nama 			:", tab[posisi].NamaPenyewa)
+		fmt.Println("No Telepon		:", tab[posisi].NoTelp)
+		fmt.Print("Masukkan nama penyewa baru: ") 
+		fmt.Scan(&tab[posisi].NamaPenyewa)
+		fmt.Print("Masukkan nomor telepon baru: ")
+		fmt.Scan(&tab[posisi].NoTelp)
+		fmt.Println("Data penyewa berhasil diubah.")
+	}
+}
+
+func penyewaDipakai(tab DaftarSewa, jumlah int, idPenyewa int) bool {
+	var i int
+	var dipakai bool 
+
+	i = 0
+	dipakai = false
+	for i < jumlah && !dipakai {
+		if tab[i].IdPenyewa == idPenyewa {
+			dipakai = true 
+		}
+		i++
+	}
+	return dipakai
+}
+
+func hapusPenyewa(tab *DaftarSewa, jumlah *int, dataSewa DaftarSewa, jumlahSewa int) {
+	var idCari, posisi, i int 
+
+	fmt.Println("==== HAPUS DATA PENYEWA ====")
+	fmt.Print("Masukkan ID penyewa yg ingin dihapus: ")
+	fmt.Scan(&idCari)
+
+	posisi = cariPenyewa(*tab, *jumlah, idCari)
+	if posisi == -1 {
+		fmt.Println("Data penyewa tidak ditemukan.")
+	} else if penyewaDipakai(dataSewa, jumlahSewa, idCari) {
+		fmt.Println("Penyewa tidak dapat dihapus karena sudah memiliki data sewa.")
+	} else {
+		i = posisi 
+		for i < *jumlah-1 {
+			tab[i] = tab[i+1]
+			i++
+		}
+		*jumlah = *jumlah - 1
+		fmt.Println("Data penyewa berhasil dihapus.")
+	}
+}
+
+func cariDataSewa(tab DaftarSewa, jumlah int, idCari int) int {
+	var i, posisi int
+	posisi = -1
+	i = 0
+	for i < jumlah && posisi == -1 {
+		if tab[i].Id == idCari {
+			posisi = i 
+		}
+		i++
+	}
+	return posisi
+}
+
+// NGECEK JADWAL YG BENTROKAN SEBELUM DI UBAH DAN SESUDAH DI UBAH
+func cekBentrok(tab DaftarSewa, jumlah int, idLapangan int, tanggal string, jamMulai int, jamSelesai int) bool {
+	var i int
+	var bentrok bool
+
+	i = 0
+	bentrok = false
+	for i < jumlah && !bentrok {
+		if tab[i].IdLapangan == idLapangan && tab[i].Tanggal == tanggal {
+			if jamMulai < tab[i].JamSelesai && jamSelesai > tab[i].JamMulai {
+				bentrok = true
+			}
+		}
+		i++
+	}
+	return bentrok
+}
+
+func cekBentrokUbah(tab DaftarSewa, jumlah int, idSewa int, idLapangan int, tanggal string, jamMulai int, jamSelesai int) bool {
+	var i int
+	var bentrok bool
+
+	i = 0
+	bentrok = false
+	for i < jumlah && !bentrok {
+		if tab[i].Id != idSewa && tab[i].IdLapangan == idLapangan && tab[i].Tanggal == tanggal {
+			if jamMulai < tab[i].JamSelesai && jamSelesai > tab[i].JamMulai {
+				bentrok = true
+			}
+		}
+		i++
+	}
+	return bentrok
+}
+
+func tambahDataSewa(dataLapangan DaftarLapangan, jumlahLapangan int, dataPenyewa DaftarSewa, jumlahPenyewa int, dataSewa *DaftarSewa, jumlahSewa *int) {
+	var sewaBaru DataSewa
+	var posisiLapangan, posisiPenyewa, posisiSewa int
+	var durasi, pilihanBayar int
+	var bentrok bool  
+
+	if *jumlahSewa >= NMAX {
+		fmt.Println("Data sewa sudah penuh.")
+	} else {
+		fmt.Println("==== TAMBAH DATA SEWA ====")
+		fmt.Print("Masukkan ID sewa: ")
+		fmt.Scan(&sewaBaru.Id)
+
+		posisiSewa = cariDataSewa(*dataSewa, *jumlahSewa, sewaBaru.Id)
+		if posisiSewa != -1 {
+			fmt.Println("ID sewa sudah digunakan.")
+		} else {
+			fmt.Print("Masukkan ID penyewa: ")
+			fmt.Scan(&sewaBaru.IdPenyewa)
+
+			posisiPenyewa = cariPenyewa(dataPenyewa, jumlahPenyewa, sewaBaru.IdPenyewa)
+			if posisiPenyewa == -1 {
+				fmt.Println("ID penyewa tidak ditemukan.")
+			} else {
+				fmt.Print("Masukkan ID lapangan: ")
+				fmt.Scan(&sewaBaru.IdLapangan)
+				
+				posisiLapangan = cariLapangan(dataLapangan, jumlahLapangan, sewaBaru.IdLapangan)
+				if posisiLapangan == -1 {
+					fmt.Println("ID lapangan tidak ditemukan.")
+				} else {
+					fmt.Print("Masukkan tanggal sewa YYYY-MM-DD: ")
+					fmt.Scan(&sewaBaru.Tanggal)
+					fmt.Print("Masukkan jam mulai HH:MM, contoh 09:35: ")
+					sewaBaru.JamMulai = inputJam()
+					fmt.Print("Masukkan jam selesai HH:MM, contoh 11:00: ")
+					sewaBaru.JamSelesai = inputJam()
+
+					if sewaBaru.JamMulai == -1 || sewaBaru.JamSelesai == -1 {
+						fmt.Println("Format jam tidak valid.")
+					} else if sewaBaru.JamMulai < JAM_BUKA || sewaBaru.JamSelesai > JAM_TUTUP {
+						fmt.Println("Jam sewa di luar jam operasional.")
+					} else if sewaBaru.JamSelesai <= sewaBaru.JamMulai {
+						fmt.Println("Jam sewa tidak valid.")
+					} else {
+						bentrok = cekBentrok(*dataSewa, *jumlahSewa, sewaBaru.IdLapangan, sewaBaru.Tanggal, sewaBaru.JamMulai, sewaBaru.JamSelesai)
+						if bentrok {
+							fmt.Println("Jadwal sudah terbooking.")
+						} else {
+							sewaBaru.HargaPerJam = dataLapangan[posisiLapangan].HargaPerJam
+							durasi = sewaBaru.JamSelesai - sewaBaru.JamMulai
+							sewaBaru.TotalBayar = durasi * sewaBaru.HargaPerJam / 60
+							sewaBaru.StatusTersedia = false 
+							sewaBaru.NamaPenyewa = dataPenyewa[posisiPenyewa].NamaPenyewa
+							sewaBaru.NoTelp = dataPenyewa[posisiPenyewa].NoTelp
+							
+							fmt.Println("Total bayar:", sewaBaru.TotalBayar)
+							fmt.Print("Status bayar 1 = Lunas, 2 = Belum_Lunas: ")
+							fmt.Scan(&pilihanBayar)
+
+							if pilihanBayar == 1 {
+								sewaBaru.StatusBayar = true 
+							} else {
+								sewaBaru.StatusBayar = false
+							}
+
+							dataSewa[*jumlahSewa] = sewaBaru
+							*jumlahSewa = *jumlahSewa + 1
+							fmt.Println("Data sewa berhasil ditambahkan.")
+						}
+					}
+				}
+			}
+		}	
+	}
+}
+
+func tampilDataSewa(tab DaftarSewa, jumlah int, dataLapangan DaftarLapangan, jumlahLapangan int, dataPenyewa DaftarSewa, jumlahPenyewa int) {
+	var i, posisiLapangan, posisiPenyewa int
+	var statusBayar string 
+
+	if jumlah == 0 {
+		fmt.Println("Belum ada data sewa.")
+	} else {
+		fmt.Println("==== DATA SEWA LAPANGAN ====")
+		i = 0
+		for i < jumlah {
+				posisiLapangan = cariLapangan(dataLapangan, jumlahLapangan, tab[i].IdLapangan)
+				posisiPenyewa = cariPenyewa(dataPenyewa, jumlahPenyewa, tab[i].IdPenyewa)
+
+			fmt.Println("ID sewa		:", tab[i].Id)
+			fmt.Println("ID Penyewa	:", tab[i].IdPenyewa)	
+			if posisiPenyewa != -1 {
+				fmt.Println("Nama Penyewa	:", dataPenyewa[posisiPenyewa].NamaPenyewa)
+				fmt.Println("No Telepon	:", dataPenyewa[posisiPenyewa].NoTelp)	
+			} else {
+				fmt.Println("Nama Penyewa	: Data penyewa tidak ditemukan")
+				fmt.Println("No Telepon		: Data penyewa tidak ditemukan")	
+			}
+
+			fmt.Println("ID Lapangan	:", tab[i].IdLapangan)
+			if posisiLapangan != -1 {
+				fmt.Println("Nama Lapangan	:", dataLapangan[posisiLapangan].NamaLapangan)
+			} else {
+				fmt.Println("Nama Lapangan	: Data lapangan tidak ditemukan")
+			}
+
+			fmt.Println("Tanggal		:", tab[i].Tanggal)
+			fmt.Print("Jam		: ")
+			cetakJam(tab[i].JamMulai)
+			fmt.Print(" - ")
+			cetakJam(tab[i].JamSelesai)
+			fmt.Println()
+			fmt.Println("Harga/Jam	:", tab[i].HargaPerJam)
+			fmt.Println("Total Bayar	:", tab[i].TotalBayar)
+			if tab[i].StatusBayar {
+				statusBayar = "Lunas"
+			} else {
+				statusBayar = "Belum Lunas"
+			}
+			fmt.Println("Status Bayar	:", statusBayar)
+			fmt.Println("------------------------------")
+			i++
+		}
+	}
+}
+
+func ubahDataSewa(dataSewa *DaftarSewa, jumlahSewa int, dataLapangan DaftarLapangan, jumlahLapangan int, dataPenyewa DaftarSewa, jumlahPenyewa int) {
+	var idCari, posisiSewa, posisiLapangan, posisiPenyewa int
+	var pilihanBayar, durasi int
+	var bentrok bool 
+	var sewaBaru DataSewa 
+
+	fmt.Println("==== UBAH DATA SEWA ====")
+	fmt.Print("Masukkan ID sewa yg ingin diubah: ")
+	fmt.Scan(&idCari)
+
+	posisiSewa = cariDataSewa(*dataSewa, jumlahSewa, idCari)
+	if posisiSewa == -1 {
+		fmt.Println("Data sewa tidak ditemukan.")
+	} else {
+		sewaBaru.Id = dataSewa[posisiSewa].Id
+		fmt.Print("Masukkan ID penyewa baru: ")
+		fmt.Scan(&sewaBaru.IdPenyewa)
+
+		posisiPenyewa = cariPenyewa(dataPenyewa, jumlahPenyewa, sewaBaru.IdPenyewa)
+		if posisiPenyewa == -1 {
+			fmt.Println("ID penyewa tidak ditemukan.")
+		} else {
+			fmt.Print("Masukkan ID lapangan baru: ")
+			fmt.Scan(&sewaBaru.IdLapangan)
+				
+			posisiLapangan = cariLapangan(dataLapangan, jumlahLapangan, sewaBaru.IdLapangan)
+			if posisiLapangan == -1 {
+					fmt.Println("ID lapangan tidak ditemukan.")
+			} else {
+				fmt.Print("Masukkan tanggal sewa baru YYYY-MM-DD: ")
+				fmt.Scan(&sewaBaru.Tanggal)
+				fmt.Print("Masukkan jam mulai baru HH:MM, contoh 09:35: ")
+				sewaBaru.JamMulai = inputJam()
+				fmt.Print("Masukkan jam selesai baru HH:MM, contoh 11:00: ")
+				sewaBaru.JamSelesai = inputJam()
+
+				if sewaBaru.JamMulai == -1 || sewaBaru.JamSelesai == -1 {
+					fmt.Println("Format jam tidak valid.")
+				} else if sewaBaru.JamMulai < JAM_BUKA || sewaBaru.JamSelesai > JAM_TUTUP {
+					fmt.Println("Jam sewa di luar jam operasional.")
+				} else if sewaBaru.JamSelesai <= sewaBaru.JamMulai {
+					fmt.Println("Jam sewa tidak valid.")
+				} else {
+					bentrok = cekBentrokUbah(*dataSewa, jumlahSewa, sewaBaru.Id, sewaBaru.IdLapangan, sewaBaru.Tanggal, sewaBaru.JamMulai, sewaBaru.JamSelesai)
+					if bentrok {
+						fmt.Println("Jadwal sudah terbooking.")
+					} else {
+						sewaBaru.HargaPerJam = dataLapangan[posisiLapangan].HargaPerJam
+						durasi = sewaBaru.JamSelesai - sewaBaru.JamMulai
+						sewaBaru.TotalBayar = durasi * sewaBaru.HargaPerJam / 60
+						sewaBaru.StatusTersedia = false 
+						sewaBaru.NamaPenyewa = dataPenyewa[posisiPenyewa].NamaPenyewa
+						sewaBaru.NoTelp = dataPenyewa[posisiPenyewa].NoTelp
+							
+						fmt.Println("Total bayar baru:", sewaBaru.TotalBayar)
+						fmt.Print("Status bayar 1 = Lunas, 2 = Belum_Lunas: ")
+						fmt.Scan(&pilihanBayar)
+
+						if pilihanBayar == 1 {
+							sewaBaru.StatusBayar = true 
+						} else {
+							sewaBaru.StatusBayar = false
+						}
+
+						dataSewa[posisiSewa] = sewaBaru
+						fmt.Println("Data sewa berhasil diubah.")
+					}
+				}
+			}
+		}
+	}
+}
+
+func hapusDataSewa(tab *DaftarSewa, jumlah *int) {
+	var idCari, posisi, i int 
+
+	fmt.Println("==== HAPUS DATA SEWA ====")
+	fmt.Print("Masukkan ID sewa yg ingin dihapus: ")
+	fmt.Scan(&idCari)
+
+	posisi = cariDataSewa(*tab, *jumlah, idCari)
+	if posisi == -1 {
+		fmt.Println("Data sewa tidak ditemukan.")
+	} else {
+		i = posisi 
+		for i < *jumlah-1 {
+			tab[i] = tab[i+1]
+			i++
+		}
+		*jumlah = *jumlah - 1
+		fmt.Println("Data sewa berhasil dihapus.")
+	}
+}
+
+func buatJadwalKosong(dataLapangan DaftarLapangan, jumlahLapangan int, dataSewa DaftarSewa, jumlahSewa int, tanggal string, jadwalKosong *DaftarSewa, jumlahKosong *int) {
+	var i, jamMulai, jamSelesai int
+	var bentrok bool
+	var dataKosong DataSewa
+
+	*jumlahKosong = 0
+	i = 0
+	for i < jumlahLapangan {
+		jamMulai = JAM_BUKA
+		for jamMulai + SLOT_JADWAL <= JAM_TUTUP {
+			jamSelesai = jamMulai + SLOT_JADWAL
+			bentrok = cekBentrok(dataSewa, jumlahSewa, dataLapangan[i].IdLapangan, tanggal, jamMulai, jamSelesai)
+
+			if !bentrok {
+				dataKosong.Id = 0 
+				dataKosong.IdPenyewa = 0
+				dataKosong.IdLapangan = dataLapangan[i].IdLapangan
+				dataKosong.NamaPenyewa = "-"
+				dataKosong.NoTelp = "-"
+				dataKosong.Tanggal = tanggal
+				dataKosong.JamMulai = jamMulai
+				dataKosong.JamSelesai = jamSelesai
+				dataKosong.HargaPerJam = dataLapangan[i].HargaPerJam
+				dataKosong.TotalBayar = SLOT_JADWAL * dataKosong.HargaPerJam / 60
+				dataKosong.StatusTersedia = true
+				dataKosong.StatusBayar = false
+
+				jadwalKosong[*jumlahKosong] = dataKosong
+				*jumlahKosong = *jumlahKosong + 1
+			}
+			jamMulai =jamMulai + SLOT_JADWAL
+		}
+		i++
+	}
+}
+
+func tampilJadwalKosong(tab DaftarSewa, jumlah int, dataLapangan DaftarLapangan, jumlahLapangan int) {
+	var i, posisiLapangan int
+
+	if jumlah == 0 {
+		fmt.Println("Tidak ada jadwal kosong.")
+	} else {
+		fmt.Println("==== JADWAL KOSONG ====")
+		i = 0
+		for i < jumlah {
+			posisiLapangan = cariLapangan(dataLapangan, jumlahLapangan, tab[i].IdLapangan)
+			if posisiLapangan != -1 {
+				fmt.Println("Lapangan	:", dataLapangan[posisiLapangan].NamaLapangan)
+			} else {
+				fmt.Println("Lapangan	: Data lapangan tidak ditemukan")
+			}
+			fmt.Println("Tanggal		:", tab[i].Tanggal)
+			fmt.Print("Jam		: ")
+			cetakJam(tab[i].JamMulai)
+			fmt.Print(" - ")
+			cetakJam(tab[i].JamSelesai)
+			fmt.Println()
+			fmt.Println("Harga/Jam	:", tab[i].HargaPerJam)
+			fmt.Println("Harga Slot	:", tab[i].TotalBayar)
+			fmt.Println("------------------------------")
+			i++
+		}
+	}
+}
+
+func menuJadwalTersedia(dataLapangan DaftarLapangan, jumlahLapangan int, dataSewa DaftarSewa, jumlahSewa int) {
+	var tanggal string
+	var jadwalKosong DaftarSewa
+	var jumlahKosong int
+
+	fmt.Println("==== CEK JADWAL TERSEDIA ====") 
+	fmt.Println("Masukkan tanggal YYYY-MM-DD: ")
+	fmt.Scan(&tanggal)
+
+	buatJadwalKosong(dataLapangan, jumlahLapangan, dataSewa, jumlahSewa, tanggal, &jadwalKosong, &jumlahKosong)
+	tampilJadwalKosong(jadwalKosong, jumlahKosong, dataLapangan, jumlahLapangan)
+}
+
+func tampilanSatuPenyewa(data DataSewa) {
+	fmt.Println("ID Penyewa	:", data.IdPenyewa)
+	fmt.Println("Nama		:", data.NamaPenyewa)
+	fmt.Println("No Telepon	:", data.NoTelp)
+}
+
+// FITUR BAGIAN B : CARI DATA PENYEWA BERDASARKAN NAMA/NO TELP MENGGUNAKAN SEQUENTIAL DAN BINARY SEARCH
+
+func seqsearchNama(tab DaftarSewa, jumlah int, namaCari string) int {
+	var i, posisi int 
+
+	posisi = -1
+	i = 0
+	for i < jumlah && posisi == -1 {
+		if tab[i].NamaPenyewa == namaCari {
+			posisi = i 
+		}
+		i++
+	}
+	return posisi 
+}
+
+func seqsearchTelpon(tab DaftarSewa, jumlah int, teleponCari string) int {
+	var i, posisi int 
+
+	posisi = -1
+	i = 0
+	for i < jumlah && posisi == -1 {
+		if tab[i].NoTelp == teleponCari {
+			posisi = i 
+		}
+		i++
+	}
+	return posisi
+}
+
+// Karena yg dicari binary search maka kita urutkan menggunakan selectionsort terlebih dahulu
+func selectsortNamaPenyewa(tab *DaftarSewa, jumlah int) {
+	var pass, i, idx int
+	var temp DataSewa
+
+	pass = 1
+	for pass <= jumlah-1 {
+		idx = pass -1
+		i = pass 
+		for i < jumlah {
+			if tab[i].NamaPenyewa < tab[idx].NamaPenyewa {
+				idx = i 
+			}
+			i++
+		}
+		temp = tab[pass-1]
+		tab[pass-1] = tab[idx]
+		tab[idx] = temp
+		pass = pass + 1
+	}
+}
+
+func selectsortTeleponPenyewa(tab *DaftarSewa, jumlah int) {
+	var pass, i, idx int
+	var temp DataSewa
+
+	pass = 1
+	for pass <= jumlah-1 {
+		idx = pass -1
+		i = pass
+		for i < jumlah {
+			if tab[i].NoTelp < tab[idx].NoTelp {
+				idx = i
+			}
+			i++
+		} 
+		temp = tab[pass-1]
+		tab[pass-1] = tab[idx]
+		tab[idx] = temp
+		pass = pass + 1
+	}
+}
+
+func binarysearchNama(tab DaftarSewa, jumlah int, namaCari string) int {
+	var kiri, kanan, tengah, posisi int
+
+	selectsortNamaPenyewa(&tab, jumlah)
+	kiri = 0
+	kanan = jumlah - 1
+	posisi = -1
+	for kiri <= kanan && posisi == -1 {
+		tengah = (kiri + kanan) / 2
+		if namaCari < tab[tengah].NamaPenyewa {
+			kanan = tengah - 1
+		} else if namaCari > tab[tengah].NamaPenyewa {
+			kiri = tengah + 1
+		} else {
+			posisi = tengah 
+		}
+	}
+	if posisi != -1 {
+		tampilanSatuPenyewa(tab[posisi])
+	}
+	return posisi
+}
+
+func binarysearchTelepon(tab DaftarSewa, jumlah int, teleponCari string) int {
+	var kiri, kanan, tengah, posisi int 
+
+	selectsortTeleponPenyewa(&tab, jumlah)
+	kiri = 0
+	kanan = jumlah - 1
+	posisi = -1
+	for kiri <= kanan && posisi == -1 {
+		tengah = (kiri + kanan) / 2
+		if teleponCari < tab[tengah].NoTelp {
+			kanan = tengah - 1
+		} else if teleponCari > tab[tengah].NoTelp {
+			kiri = tengah + 1
+		} else {
+			posisi = tengah
+		}
+	}
+	if posisi != -1 {
+		tampilanSatuPenyewa(tab[posisi])
+	}
+	return posisi
+}
+
+func menuSequentsearch(dataPenyewa DaftarSewa, jumlahPenyewa int) {
+	var pilihan, posisi int
+	var namaCari, teleponCari string
+
+	fmt.Println("==== SEQUENTIAL SEARCH PENYEWA ====")
+	fmt.Println("1. Cari berdasarkan nama")
+	fmt.Println("2. Cari berdasarkan nomor telepon")
+	fmt.Print("Pilih: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		fmt.Print("Masukkan nama penyewa: ")
+		fmt.Scan(&namaCari)
+		posisi = seqsearchNama(dataPenyewa, jumlahPenyewa, namaCari)
+		if posisi == -1 {
+			fmt.Println("Data penyewa tidak ditemukan.")
+		} else {
+			tampilanSatuPenyewa(dataPenyewa[posisi])
+		}
+	} else if pilihan == 2{
+		fmt.Print("Masukkan nomor telepon: ")
+		fmt.Scan(&teleponCari)
+		posisi = seqsearchTelpon(dataPenyewa, jumlahPenyewa, teleponCari)
+		if posisi == -1 {
+			fmt.Println("Data penyewa tidak ditemukan.")
+		} else {
+			tampilanSatuPenyewa(dataPenyewa[posisi])
+		}
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+func menuBinarysearch(dataPenyewa DaftarSewa, jumlahPenyewa int) {
+	var pilihan, posisi int 
+	var namaCari, teleponCari string
+
+	fmt.Println("==== BINARY SEARCH PENYEWA ====")
+	fmt.Println("1. Cari berdasarkan nama")
+	fmt.Println("2. Cari berdasarkan nomor telepon")
+	fmt.Print("Pilih: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		fmt.Print("Masukkan nama penyewa: ")
+		fmt.Scan(&namaCari)
+		posisi = binarysearchNama(dataPenyewa, jumlahPenyewa, namaCari)
+		if posisi == -1 {
+			fmt.Println("Data penyewa tidak ditemukan.")
+		} 
+	} else if pilihan == 2{
+		fmt.Print("Masukkan nomor telepon: ")
+		fmt.Scan(&teleponCari)
+		posisi = binarysearchTelepon(dataPenyewa, jumlahPenyewa, teleponCari)
+		if posisi == -1 {
+			fmt.Println("Data penyewa tidak ditemukan.")
+		}
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+// FITUR BAGIAN C : MENGURUTKAN JADWAL KOSONG BERDASARKAN JAM MULAI/HARGA SEWA MENGGUNAKAN SELECTION DAN INSERTION SORT
+
+func selectsortJadwaljam(tab *DaftarSewa, jumlah int) {
+	var pass, i, idx int
+	var temp DataSewa
+
+	pass = 1
+	for pass <= jumlah-1 {
+		idx = pass - 1
+		i = pass
+		for i < jumlah {
+			if tab[i].JamMulai < tab[idx].JamMulai || 
+			(tab[i].JamMulai == tab[idx].JamMulai && tab[i].HargaPerJam < tab[idx].HargaPerJam) {
+				idx = i 
+			}
+			i++
+		}
+		temp = tab[pass-1]
+		tab[pass-1] = tab[idx]
+		tab[idx] = temp 
+		pass = pass + 1
+	}
+}
+
+func insertsortJadwalHarga(tab *DaftarSewa, jumlah int) {
+	var pass, i int
+	var temp DataSewa
+
+	pass = 1
+	for pass <= jumlah-1 {
+		i = pass
+		temp = tab[pass]
+		for i > 0 && 
+		(temp.HargaPerJam < tab[i-1].HargaPerJam || 
+			(temp.HargaPerJam == tab[i-1].HargaPerJam && temp.JamMulai < tab[i-1].JamMulai)) {
+			tab[i] = tab[i-1]
+			i--
+		}
+		tab[i] = temp
+		pass = pass + 1
+	}
+}
+
+func menuUrutJadwalKosong(dataLapangan DaftarLapangan, jumlahLapangan int, dataSewa DaftarSewa, jumlahSewa int) {
+	var pilihan, jumlahKosong int
+	var tanggal string
+	var jadwalKosong DaftarSewa
+
+	fmt.Println("==== URUTKAN JADWAL KOSONG ====")
+	fmt.Println("Masukkan tanggal YYYY-MM-DD: ")
+	fmt.Scan(&tanggal)
+	buatJadwalKosong(dataLapangan, jumlahLapangan, dataSewa, jumlahSewa,  tanggal, &jadwalKosong, &jumlahKosong)
+
+	if jumlahKosong == 0 {
+		fmt.Print("Tidak ada jadwal kosong pada tanggal tersebut.")
+	} else {
+		fmt.Println("1. Urutkan berdasarkan jam mulai")
+		fmt.Println("2. Urutkan berdasarkan harga sewa")
+		fmt.Print("Pilih: ")
+		fmt.Scan(&pilihan)
+		if pilihan == 1 {
+			selectsortJadwaljam(&jadwalKosong, jumlahKosong)
+			tampilJadwalKosong(jadwalKosong, jumlahKosong, dataLapangan, jumlahLapangan)
+		} else if pilihan == 2 {
+			insertsortJadwalHarga(&jadwalKosong, jumlahKosong)
+			tampilJadwalKosong(jadwalKosong, jumlahKosong, dataLapangan, jumlahLapangan)
+		} else {
+			fmt.Println("Pilihan tidak valid.")
+		}
+	}
+}
+
+// FITUR BAGIAN D : STATISTIK TOTAL PENDAPATAN BULANAN & JAM YG PALING DI SERING DIPESAN OLEH PELANGGAN
+
+func totalPendapatanBulanan(tab DaftarSewa, jumlah int) {
+	var bulan string
+	var i, total int 
+
+	fmt.Println("==== TOTAL PENDAPATAN BULANAN ====")
+	fmt.Print("Masukkan bulan YYYY-MM: ")
+	fmt.Scan(&bulan)
+
+	total = 0
+	i = 0
+	for i < jumlah {
+		if tab[i].Tanggal[0:7] == bulan && tab[i].StatusBayar {
+			total = total + tab[i].TotalBayar
+		}
+		i++
+	}
+	fmt.Println("Total pendapatan bulan", bulan, ":", total)
+}
+
+func jamPalingSeringDipesan(tab DaftarSewa, jumlah int) {
+	var frekuensi [24 * 60]int
+	var i, jam, jamFavorit, jumlahTerbanyak int
+
+	i = 0
+	for i < jumlah {
+		jam = tab[i].JamMulai
+		if jam >= 0 && jam < 24 * 60 {
+			frekuensi[jam] = frekuensi[jam] + 1
+		}
+		i++
+	}
+
+	jamFavorit = -1
+	jumlahTerbanyak = 0
+	i = 0
+	for i < 24 * 60 {
+		if frekuensi[i] > jumlahTerbanyak {
+			jumlahTerbanyak = frekuensi[i]
+			jamFavorit = i 
+		}
+		i++
+	}
+
+	fmt.Println("==== JAM PALING SERING DIPESAN ====")
+	if jamFavorit == -1 {
+		fmt.Println("Belum ada data pemesanan.")
+	} else {
+		fmt.Print("Jam paling sering dipesan: ")
+		cetakJam(jamFavorit)
+		fmt.Println()
+		fmt.Println("Jumlah pemesanan:", jumlahTerbanyak)
+	}
+}
+
+func menuKelolaData(dataLapangan *DaftarLapangan, jumlahLapangan *int, dataPenyewa *DaftarSewa, jumlahPenyewa *int, dataSewa DaftarSewa, jumlahSewa int) {
+	var pilihan int 
+
+	fmt.Println("==== KELOLA DATA ====")
+	fmt.Println("1. Lihat Lapangan") 
+	fmt.Println("2. Tambah Lapangan")
+	fmt.Println("3. Ubah Lapangan")
+	fmt.Println("4. Hapus Lapangan")
+	fmt.Println("5. Lihat Penyewa")
+	fmt.Println("6. Tambah Penyewa")
+	fmt.Println("7. Ubah Penyewa")
+	fmt.Println("8. Hapus Penyewa")
+	fmt.Println("0. Kembali")
+	fmt.Println("Pilih menu: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		tampilLapangan(*dataLapangan, *jumlahLapangan)
+	} else if pilihan == 2 {
+		tambahLapangan(dataLapangan, jumlahLapangan)
+	} else if pilihan == 3 {
+		ubahLapangan(dataLapangan, *jumlahLapangan)
+	} else if pilihan == 4 {
+		hapusLapangan(dataLapangan, jumlahLapangan, dataSewa, jumlahSewa)
+	} else if pilihan == 5 {
+		tampilPenyewa(*dataPenyewa, *jumlahPenyewa)
+	} else if pilihan == 6 {
+		tambahPenyewa(dataPenyewa, jumlahPenyewa)
+	} else if pilihan == 7 {
+		ubahPenyewa(dataPenyewa, *jumlahPenyewa)
+	} else if pilihan == 8 {
+		hapusPenyewa(dataPenyewa, jumlahPenyewa, dataSewa, jumlahSewa)
+	} else if pilihan == 0 {
+		fmt.Println("Kembali ke menu utama.")
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+func menuTransaksi(dataLapangan DaftarLapangan, jumlahLapangan int, dataPenyewa DaftarSewa, jumlahPenyewa int, dataSewa *DaftarSewa, jumlahSewa *int) {
+	var pilihan int 
+
+	fmt.Println("==== TRANSAKSI DAN JADWAL ====")
+	fmt.Println("1. Tambah sewa") 
+	fmt.Println("2. Lihat sewa")
+	fmt.Println("3. Ubah sewa")
+	fmt.Println("4. Hapus sewa")
+	fmt.Println("5. Lihat jadwal tersedia")
+	fmt.Println("0. Kembali")
+	fmt.Println("Pilih menu: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		tambahDataSewa(dataLapangan, jumlahLapangan, dataPenyewa, jumlahPenyewa, dataSewa, jumlahSewa)
+	} else if pilihan == 2 {
+		tampilDataSewa(*dataSewa, *jumlahSewa, dataLapangan, jumlahLapangan, dataPenyewa, jumlahPenyewa)
+	} else if pilihan == 3 {
+		ubahDataSewa(dataSewa, *jumlahSewa, dataLapangan, jumlahLapangan, dataPenyewa, jumlahPenyewa)
+	} else if pilihan == 4 {
+		hapusDataSewa(dataSewa, jumlahSewa)
+	} else if pilihan == 5 {
+		menuJadwalTersedia(dataLapangan, jumlahLapangan, *dataSewa, *jumlahSewa)
+	} else if pilihan == 0 {
+		fmt.Println("Kembali ke menu utama.")
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+func menuPencarian(dataPenyewa DaftarSewa, jumlahPenyewa int) {
+	var pilihan int 
+
+	fmt.Println("==== PENCARIAN PENYEWA ====")
+	fmt.Println("1. Sequential Search") 
+	fmt.Println("2. Binary Search")
+	fmt.Println("0. Kembali")
+	fmt.Println("Pilih menu: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		menuSequentsearch(dataPenyewa, jumlahPenyewa)
+	} else if pilihan == 2 {
+		menuBinarysearch(dataPenyewa, jumlahPenyewa)
+	} else if pilihan == 0 {
+		fmt.Println("Kembali ke menu utama.")
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+func menuStatistik(dataSewa DaftarSewa, jumlahSewa int) {
+	var pilihan int 
+
+	fmt.Println("==== STATISTIK ====")
+	fmt.Println("1. Total pendapatan bulanan") 
+	fmt.Println("2. Jam paling sering dipesan")
+	fmt.Println("0. Kembali")
+	fmt.Println("Pilih menu: ")
+	fmt.Scan(&pilihan)
+
+	if pilihan == 1 {
+		totalPendapatanBulanan(dataSewa, jumlahSewa)
+	} else if pilihan == 2 {
+		jamPalingSeringDipesan(dataSewa, jumlahSewa)
+	} else if pilihan == 0 {
+		fmt.Println("Kembali ke menu utama.")
+	} else {
+		fmt.Println("Pilihan tidak valid.")
+	}
+}
+
+func main(){
+	var dataLapangan 	DaftarLapangan
+	var dataPenyewa		DaftarSewa
+	var dataSewa		DaftarSewa
+	var jumlahLapangan	int
+	var jumlahPenyewa	int 
+	var jumlahSewa		int
+	var pilihan			int
+	var selesai 		bool
+
+	isiDataLapangan(&dataLapangan, &jumlahLapangan)
+	isiDataDummy(&dataPenyewa, &jumlahPenyewa, &dataSewa, &jumlahSewa)
+	selesai = false 
+
+	for !selesai {
+		tampilMenuUtama()
+		fmt.Scan(&pilihan)
+
+		if pilihan == 1 {
+			menuKelolaData(&dataLapangan, &jumlahLapangan, &dataPenyewa, &jumlahPenyewa, dataSewa, jumlahSewa)
+		} else if pilihan == 2 {
+			menuTransaksi(dataLapangan, jumlahLapangan, dataPenyewa, jumlahPenyewa, &dataSewa, &jumlahSewa)
+		} else if pilihan == 3 {
+			menuPencarian(dataPenyewa, jumlahPenyewa)
+		} else if pilihan == 4 {
+			menuUrutJadwalKosong(dataLapangan, jumlahLapangan, dataSewa, jumlahSewa)
+		} else if pilihan == 5 {
+			menuStatistik(dataSewa, jumlahSewa)
+		} else if pilihan == 0 {
+			selesai = true 
+		} else {
+			fmt.Println("Pilihan tidak valid.")
+		}
+		fmt.Println()
+	}
+}
